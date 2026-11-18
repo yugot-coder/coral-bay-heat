@@ -14,6 +14,22 @@ export const WATER_X = 4470;
 
 const ROOF_DETAILS = ['ac', 'tank', 'garden', 'sign', 'plain', 'helipad'];
 
+// Deterministic integer hash of a position. Façade identity and props are
+// derived from this — never from the shared world rng — so adding them does
+// not shift a single existing rng draw or change the city layout.
+export function hash2(x, y) {
+  let h = (Math.floor(x) * 374761393 + Math.floor(y) * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+const TRIM_TONES = ['#fff3e0', '#f4e1c1', '#e8e3d9', '#2e6f73', '#b84a39', '#5b7d8a', '#d97b4f', '#8a5a3b'];
+const SHOP_NAMES = [
+  'CORAL CAFÉ', 'TACO SOL', 'HOTEL PALOMA', 'SURF & SAND', 'FARMACIA BAY',
+  'BARBERÍA LUIS', 'MERCADO CORAL', 'PIZZA FARO', 'LIBROS DEL MAR', 'GYM ARENA',
+  'HELADERÍA NUBE', 'BAR LA BRISA', 'PANADERÍA SOL', 'FLORISTERÍA LIA',
+];
+
 export function districtAt(x, y) {
   for (const d of DISTRICTS) {
     if (x >= d.x && x <= d.x + d.w && y >= d.y && y <= d.y + d.h) return d.name;
@@ -22,7 +38,7 @@ export function districtAt(x, y) {
 }
 
 function makeBuilding(rng, x, y, w, h, tall, label) {
-  return {
+  const b = {
     x, y, w, h,
     height: tall ? randRange(rng, 55, 120) : randRange(rng, 16, 52),
     color: pick(rng, BUILDING_COLORS),
@@ -31,6 +47,15 @@ function makeBuilding(rng, x, y, w, h, tall, label) {
     label: label || '',
     signHue: Math.floor(randRange(rng, 0, 360)),
   };
+  // Façade identity from a position hash (no rng draws — layout unchanged).
+  const fh = hash2(x, y);
+  if (tall) b.style = fh % 5 < 3 ? 'glass' : 'deco';
+  else b.style = ['stucco', 'brick', 'slab'][fh % 3];
+  b.trim = TRIM_TONES[(fh >>> 3) % TRIM_TONES.length];
+  b.shop = tall ? (fh >>> 5) % 100 < 10 : (fh >>> 5) % 100 < 45;
+  b.balcony = b.style === 'stucco' && ((fh >>> 7) % 100) < 55;
+  b.signText = b.shop && ((fh >>> 9) % 100) < 65 ? SHOP_NAMES[(fh >>> 11) % SHOP_NAMES.length] : '';
+  return b;
 }
 
 export function generateCity(rng) {
@@ -99,7 +124,35 @@ export function generateCity(rng) {
   landmarks.garage.kind = 'garage';
   buildings.push(...Object.values(landmarks));
 
-  return { buildings, parks, lots, trees, lights, landmarks };
+  // Beach props, built last from coordinate hashes only (no rng draws):
+  // umbrellas with towels along the sand, boats anchored in the water.
+  const props = [];
+  for (let y = 240; y < WORLD.height - 160; y += 175) {
+    const ph = hash2(BEACH_X + 90, y);
+    if (ph % 100 < 22) continue; // leave some stretches of sand empty
+    const ux = BEACH_X + 46 + (ph % 170);
+    props.push({
+      kind: 'umbrella', x: ux, y,
+      hue: (ph >>> 3) % 360,
+      towelHue: (ph >>> 7) % 360,
+      towelAngle: ((ph >>> 11) % 8) * (Math.PI / 4),
+      towelSide: (ph >>> 13) % 2 === 0 ? 1 : -1,
+    });
+  }
+  for (let i = 0; i < 8; i += 1) {
+    const by = 260 + i * ((WORLD.height - 520) / 7);
+    const bh = hash2(WATER_X + 120, Math.floor(by));
+    props.push({
+      kind: 'boat',
+      x: WATER_X + 70 + (bh % 190),
+      y: by + ((bh >>> 5) % 90) - 45,
+      angle: ((bh >>> 9) % 628) / 100,
+      hue: (bh >>> 15) % 360,
+      len: 44 + (bh >>> 21) % 26,
+    });
+  }
+
+  return { buildings, parks, lots, trees, lights, landmarks, props };
 }
 
 /** Is this point on any road (either direction of travel)? */

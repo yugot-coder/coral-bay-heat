@@ -112,23 +112,172 @@ export function createRenderer(canvas) {
     }
   }
 
+  // Per-window / per-pane variety from a position hash — deterministic,
+  // no rng, no wall clock.
+  function winHash(x, y) {
+    let h = (Math.floor(x) * 374761393 + Math.floor(y) * 668265263) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return (h ^ (h >>> 16)) >>> 0;
+  }
+
+  function drawProps(state, l, t, r, b) {
+    for (const prop of state.city.props || []) {
+      if (prop.x < l - 60 || prop.x > r + 60 || prop.y < t - 60 || prop.y > b + 60) continue;
+      if (prop.kind === 'umbrella') {
+        // Towel beside the umbrella.
+        ctx.save();
+        ctx.translate(prop.x + prop.towelSide * 17, prop.y + 13);
+        ctx.rotate(prop.towelAngle);
+        rect(-13, -6, 26, 12, `hsl(${prop.towelHue} 65% 62%)`);
+        rect(-13, -2, 26, 4, 'rgba(255,255,255,0.55)');
+        ctx.restore();
+        circle(prop.x + 3, prop.y + 4, 13, 'rgba(60,35,20,0.22)');
+        circle(prop.x, prop.y, 13, `hsl(${prop.hue} 78% 58%)`);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.beginPath();
+        ctx.moveTo(prop.x, prop.y - 13);
+        ctx.lineTo(prop.x + 11, prop.y + 7);
+        ctx.lineTo(prop.x - 11, prop.y + 7);
+        ctx.fill();
+        circle(prop.x, prop.y, 3.4, '#ffffff');
+      } else if (prop.kind === 'boat') {
+        ctx.save();
+        ctx.translate(prop.x, prop.y);
+        ctx.rotate(prop.angle);
+        ctx.fillStyle = 'rgba(10,50,60,0.3)';
+        ctx.beginPath(); ctx.ellipse(3, 4, prop.len / 2, 10, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `hsl(${prop.hue} 55% 88%)`;
+        ctx.beginPath(); ctx.ellipse(0, 0, prop.len / 2, 9.5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `hsl(${prop.hue} 70% 52%)`;
+        ctx.fillRect(-prop.len / 2 + 3, -2.2, prop.len - 6, 4.4);
+        rect(-6, -5, 15, 10, '#f4f1e8');
+        rect(-3, -3.4, 6, 6.8, 'rgba(40,80,110,0.8)');
+        ctx.restore();
+      }
+    }
+  }
+
   function drawBuildings(state, l, t, r, b) {
+    const night = state.phase === PHASE_NIGHT;
     for (const bd of state.city.buildings) {
       if (bd.x + bd.w < l - 60 || bd.x > r + 60 || bd.y + bd.h < t - 60 || bd.y > b + 60) continue;
       const sh = 6 + bd.height * 0.16;
       rect(bd.x + sh, bd.y + sh, bd.w, bd.h, 'rgba(60,35,20,0.35)');
       rect(bd.x - 5, bd.y - 5, bd.w + 10, bd.h + 10, PALETTE.sidewalk);
-      rect(bd.x, bd.y, bd.w, bd.h, bd.color);
-      const inset = 9;
-      rect(bd.x + inset, bd.y + inset, bd.w - inset * 2, bd.h - inset * 2, shade(bd.color, 18));
-      // Window grid; lit gold at night.
-      const cols = Math.max(2, Math.floor(bd.w / 34));
-      const rows = Math.max(2, Math.floor(bd.h / 34));
-      for (let cx = 0; cx < cols; cx += 1) {
-        for (let cy = 0; cy < rows; cy += 1) {
-          const lit = ((cx * 7 + cy * 13 + bd.windows) % 5) === 0;
-          ctx.fillStyle = state.phase === PHASE_NIGHT && lit ? '#ffd873' : 'rgba(40,60,80,0.35)';
-          ctx.fillRect(bd.x + 16 + cx * ((bd.w - 26) / cols), bd.y + 16 + cy * ((bd.h - 26) / rows), 11, 8);
+      // Two-tone body: deeper base, lighter upper field.
+      rect(bd.x, bd.y, bd.w, bd.h, shade(bd.color, -16));
+      rect(bd.x, bd.y, bd.w, bd.h - 12, shade(bd.color, 16));
+      // Cornice along the top edge, plinth along the bottom.
+      rect(bd.x, bd.y, bd.w, 5, bd.trim);
+      rect(bd.x, bd.y + 5, bd.w, 2, 'rgba(0,0,0,0.18)');
+      rect(bd.x, bd.y + bd.h - 6, bd.w, 6, shade(bd.color, -34));
+
+      const shopH = bd.shop ? 30 : 0;
+      const fx = bd.x + 10; const fy = bd.y + 10;
+      const fw = bd.w - 20; const fh = bd.h - 20 - shopH;
+      const style = bd.style || 'slab';
+
+      if (style === 'glass') {
+        // Near-full glazing: glass field, mullions, diagonal shine.
+        rect(fx, fy, fw, fh, night ? '#274b63' : '#4d7d9c');
+        const px = 21; const py = 17;
+        for (let gx = fx; gx < fx + fw; gx += px) {
+          for (let gy = fy; gy < fy + fh; gy += py) {
+            const pw = Math.min(px - 2.5, fx + fw - gx - 1);
+            const ph = Math.min(py - 2.5, fy + fh - gy - 1);
+            if (pw < 4 || ph < 4) continue;
+            const wh = winHash(gx, gy);
+            const lit = night ? wh % 100 < 34 : wh % 100 < 9;
+            ctx.fillStyle = lit ? (night ? '#ffd873' : '#ffca7a') : (wh % 3 === 0 ? 'rgba(190,228,248,0.75)' : 'rgba(140,195,225,0.55)');
+            ctx.fillRect(gx + 1.2, gy + 1.2, pw, ph);
+          }
+        }
+        ctx.strokeStyle = 'rgba(225,242,252,0.5)';
+        ctx.lineWidth = 1.4;
+        for (let gx = fx; gx <= fx + fw; gx += px) { ctx.beginPath(); ctx.moveTo(gx, fy); ctx.lineTo(gx, fy + fh); ctx.stroke(); }
+        for (let gy = fy; gy <= fy + fh; gy += py) { ctx.beginPath(); ctx.moveTo(fx, gy); ctx.lineTo(fx + fw, gy); ctx.stroke(); }
+        ctx.fillStyle = 'rgba(255,255,255,0.16)';
+        ctx.beginPath();
+        ctx.moveTo(fx + fw * 0.12, fy + fh);
+        ctx.lineTo(fx + fw * 0.42, fy);
+        ctx.lineTo(fx + fw * 0.62, fy);
+        ctx.lineTo(fx + fw * 0.32, fy + fh);
+        ctx.fill();
+      } else {
+        if (style === 'brick') {
+          // Horizontal floor bands.
+          ctx.fillStyle = 'rgba(120,52,32,0.20)';
+          for (let gy = fy + 24; gy < fy + fh; gy += 25) ctx.fillRect(fx, gy, fw, 3);
+          rect(fx, fy, fw, fh, 'rgba(150,70,45,0.10)');
+        } else if (style === 'deco') {
+          // Vertical fin stripes + stepped crown.
+          ctx.fillStyle = 'rgba(255,255,255,0.20)';
+          for (let gx = fx + 14; gx < fx + fw - 6; gx += 30) ctx.fillRect(gx, fy, 4, fh);
+          const cw = Math.min(fw * 0.44, 92);
+          rect(bd.x + bd.w / 2 - cw / 2, bd.y + 6, cw, 7, bd.trim);
+          rect(bd.x + bd.w / 2 - cw * 0.32, bd.y + 1.5, cw * 0.64, 6, bd.trim);
+        } else if (style === 'slab') {
+          // Panel seams + a whisper of per-panel tint.
+          for (let gx = fx; gx < fx + fw; gx += 34) {
+            for (let gy = fy; gy < fy + fh; gy += 34) {
+              if (winHash(gx, gy) % 3 === 0) rect(gx, gy, Math.min(34, fx + fw - gx), Math.min(34, fy + fh - gy), 'rgba(255,255,255,0.07)');
+            }
+          }
+          ctx.strokeStyle = 'rgba(60,55,50,0.28)';
+          ctx.lineWidth = 1.4;
+          for (let gx = fx + 34; gx < fx + fw; gx += 34) { ctx.beginPath(); ctx.moveTo(gx, fy); ctx.lineTo(gx, fy + fh); ctx.stroke(); }
+          for (let gy = fy + 34; gy < fy + fh; gy += 34) { ctx.beginPath(); ctx.moveTo(fx, gy); ctx.lineTo(fx + fw, gy); ctx.stroke(); }
+        }
+        // Framed windows with per-window variety.
+        const cols = Math.max(2, Math.floor(bd.w / 34));
+        const rows = Math.max(2, Math.floor((bd.h - shopH) / 34));
+        for (let cx = 0; cx < cols; cx += 1) {
+          for (let cy = 0; cy < rows; cy += 1) {
+            const wx = bd.x + 16 + cx * ((bd.w - 26) / cols);
+            const wy = bd.y + 15 + cy * ((bd.h - shopH - 24) / rows);
+            const wh = winHash(wx, wy);
+            const lit = night ? wh % 100 < 33 : wh % 100 < 11;
+            if (style === 'stucco' && bd.balcony && cy > 0 && wh % 3 === 0) {
+              // Balcony slab with little rails under this window.
+              rect(wx - 3.5, wy + 11, 18, 3.4, shade(bd.color, -30));
+              ctx.fillStyle = 'rgba(50,45,40,0.65)';
+              for (let rx = 0; rx < 5; rx += 1) ctx.fillRect(wx - 3 + rx * 4.2, wy + 7.5, 1.4, 4);
+              rect(wx - 3.5, wy + 6.8, 18, 1.6, 'rgba(50,45,40,0.65)');
+            }
+            if (style === 'stucco') { // shutters in the trim colour
+              rect(wx - 3.4, wy - 0.6, 2.8, 9.4, bd.trim);
+              rect(wx + 11.4, wy - 0.6, 2.8, 9.4, bd.trim);
+            }
+            if (style === 'brick') rect(wx - 1.6, wy - 3, 14.2, 2.6, 'rgba(255,244,225,0.75)'); // lintel
+            rect(wx - 1.4, wy - 1.4, 13.8, 10.8, 'rgba(255,250,238,0.85)'); // frame
+            ctx.fillStyle = lit ? (night ? '#ffd873' : '#ffca7a') : (wh % 4 === 0 ? 'rgba(96,140,168,0.85)' : 'rgba(40,60,80,0.5)');
+            ctx.fillRect(wx, wy, 11, 8);
+          }
+        }
+      }
+
+      // Shopfront along the bottom edge: dark band, wide panes, striped
+      // awning projecting onto the sidewalk, sign board when named.
+      if (bd.shop) {
+        const sy = bd.y + bd.h - shopH;
+        rect(bd.x + 3, sy, bd.w - 6, shopH - 5, '#26313a');
+        ctx.fillStyle = night ? 'rgba(255,205,110,0.85)' : 'rgba(165,215,235,0.75)';
+        const panes = Math.max(2, Math.floor(bd.w / 46));
+        for (let pi = 0; pi < panes; pi += 1) {
+          ctx.fillRect(bd.x + 9 + pi * ((bd.w - 18) / panes), sy + 12, (bd.w - 18) / panes - 7, shopH - 19);
+        }
+        for (let ax = 0; ax < bd.w - 4; ax += 11) { // awning stripes
+          ctx.fillStyle = (ax / 11) % 2 === 0 ? bd.trim : '#fff6e8';
+          ctx.fillRect(bd.x + 2 + ax, bd.y + bd.h - 1, Math.min(11, bd.w - 4 - ax), 9);
+        }
+        rect(bd.x + 2, bd.y + bd.h + 8, bd.w - 4, 2, 'rgba(0,0,0,0.2)');
+        if (bd.signText) {
+          const sw = Math.min(bd.w - 14, bd.signText.length * 7.6 + 14);
+          rect(bd.x + (bd.w - sw) / 2, sy + 1.5, sw, 10.5, `hsl(${bd.signHue} 68% 40%)`);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = `bold 8.5px ${FONT}`;
+          ctx.textAlign = 'center';
+          ctx.fillText(bd.signText, bd.x + bd.w / 2, sy + 9.6);
         }
       }
       // Rooftop details.
@@ -136,6 +285,27 @@ export function createRenderer(canvas) {
       if (bd.roof === 'ac') ctx.fillRect(bd.x + bd.w * 0.6, bd.y + bd.h * 0.55, 26, 18);
       else if (bd.roof === 'tank') circle(bd.x + bd.w * 0.68, bd.y + bd.h * 0.4, 12, 'rgba(90,80,70,0.6)');
       else if (bd.roof === 'garden') rect(bd.x + bd.w * 0.15, bd.y + bd.h * 0.6, bd.w * 0.3, bd.h * 0.22, '#5da653');
+      else if (bd.roof === 'sign') {
+        // Rooftop billboard: posts, board, name or a bold colour block.
+        const bw2 = Math.min(bd.w * 0.62, 150);
+        const bx2 = bd.x + (bd.w - bw2) / 2;
+        const by2 = bd.y + bd.h * 0.3;
+        ctx.fillStyle = 'rgba(70,60,52,0.8)';
+        ctx.fillRect(bx2 + 8, by2 + 20, 4, 10);
+        ctx.fillRect(bx2 + bw2 - 12, by2 + 20, 4, 10);
+        rect(bx2 - 2, by2 - 2, bw2 + 4, 24, '#fff6e8');
+        rect(bx2, by2, bw2, 20, `hsl(${bd.signHue} 72% 46%)`);
+        if (bd.signText) {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = `bold ${Math.min(12, bw2 / Math.max(6, bd.signText.length) * 1.7)}px ${FONT}`;
+          ctx.textAlign = 'center';
+          ctx.fillText(bd.signText, bx2 + bw2 / 2, by2 + 14.5);
+        } else {
+          ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          ctx.fillRect(bx2 + 10, by2 + 6, bw2 - 20, 3.4);
+          ctx.fillRect(bx2 + 10, by2 + 12, bw2 - 34, 3.4);
+        }
+      }
       else if (bd.roof === 'helipad') {
         ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 3;
         ctx.beginPath(); ctx.arc(bd.x + bd.w / 2, bd.y + bd.h / 2, 20, 0, Math.PI * 2); ctx.stroke();
@@ -291,6 +461,7 @@ export function createRenderer(canvas) {
 
     drawGround(state, l, t, r, b);
     drawRoads(state, l, t, r, b);
+    drawProps(state, l, t, r, b);
 
     // District names painted on the ground.
     ctx.fillStyle = 'rgba(255,248,230,0.20)';

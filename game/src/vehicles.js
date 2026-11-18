@@ -133,36 +133,68 @@ export function updateTrafficCar(state, car, dt) {
   const want = Math.atan2(ty - car.y, tx - car.x);
   const steer = clamp(angleDelta(car.angle, want) * 2.2, -1, 1);
 
-  // Brake for obstacles in front: other cars, pedestrians, the player.
-  let blocked = false;
+  // Proportional following: find the nearest obstacle ahead in the lane
+  // corridor and measure the bumper-to-bumper gap using model lengths.
   const fx = Math.cos(car.angle); const fy = Math.sin(car.angle);
-  const ahead = (ox, oy, range) => {
+  let gap = Infinity;
+  const scan = (ox, oy, halfLen) => {
     const dx = ox - car.x; const dy = oy - car.y;
     const f = dx * fx + dy * fy;
     const side = Math.abs(-dx * fy + dy * fx);
-    return f > 6 && f < range && side < 30;
+    // Wider corridor at very close range, so crossing traffic inside an
+    // intersection is seen too, not just same-lane traffic.
+    if (f > 0 && side < (f < 55 ? 46 : 30)) {
+      const g = f - car.model.length / 2 - halfLen;
+      if (g < gap) gap = g;
+    }
   };
   for (const other of state.cars) {
-    if (other !== car && !other.dead && ahead(other.x, other.y, 95)) { blocked = true; break; }
+    if (other !== car && !other.dead) scan(other.x, other.y, other.model.length / 2);
   }
-  if (!blocked) for (const p of state.peds) {
-    if (!p.dead && ahead(p.x, p.y, 80)) { blocked = true; break; }
+  for (const p of state.peds) {
+    if (!p.dead) scan(p.x, p.y, 9);
   }
-  if (!blocked && state.player.car !== car && ahead(state.player.x, state.player.y, 85)) blocked = true;
+  if (state.player.car !== car) {
+    const pc = state.player.car;
+    scan(state.player.x, state.player.y, pc ? pc.model.length / 2 : 10);
+  }
 
-  const throttle = blocked ? (forwardSpeed(car) > 10 ? -1 : 0) : 0.75;
-  if (blocked && car.honkAt < state.time - 2.5) { car.honkAt = state.time; state.events.push('horn'); }
+  // Each car keeps its own preferred stop gap (from its id) so queues
+  // stagger; target speed rises smoothly to cruise at ~170 px of gap.
+  const stopGap = 24 + (car.id % 21);
+  const fwd = forwardSpeed(car);
+  let throttle;
+  if (gap === Infinity) {
+    throttle = fwd < car.cruise ? 0.75 : 0;
+  } else if (gap < stopGap * 0.45 && fwd <= 12) {
+    throttle = -0.55; // critically close: creep back, don't stack
+  } else {
+    const k = clamp((gap - stopGap) / 170, 0, 1);
+    const target = car.cruise * (k * k * (3 - 2 * k));
+    if (fwd < target - 8) throttle = 0.75;
+    else if (fwd > target + 8) throttle = -clamp((fwd - target) / 130, 0.22, 0.85);
+    else throttle = 0;
+    if (gap < stopGap + 26 && fwd > 24 && car.honkAt < state.time - 2.5) {
+      car.honkAt = state.time; state.events.push('horn');
+    }
+  }
   driveCar(car, dt, throttle * (car.cruise / 200), steer, false);
 }
 
 /** Spawn traffic and parked cars across the city at world creation. */
 export function spawnCars(state) {
   const rng = state.rng;
-  // Moving traffic on random intersections.
+  // Moving traffic on random intersections, with spawn separation: retry a
+  // few times so a fresh car never starts stacked on an already-placed one.
   for (let i = 0; i < 26; i += 1) {
-    const vx = V_ROADS[Math.floor(rng() * V_ROADS.length)];
-    const hy = H_ROADS[Math.floor(rng() * H_ROADS.length)];
-    const car = createCar(rng, Math.floor(rng() * 5), vx + randOff(rng), hy + randOff(rng), Math.floor(rng() * 4) * Math.PI / 2, 'traffic');
+    let car = null;
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      const vx = V_ROADS[Math.floor(rng() * V_ROADS.length)];
+      const hy = H_ROADS[Math.floor(rng() * H_ROADS.length)];
+      car = createCar(rng, Math.floor(rng() * 5), vx + randOff(rng), hy + randOff(rng), Math.floor(rng() * 4) * Math.PI / 2, 'traffic');
+      const clear = state.cars.every((o) => dist(car.x, car.y, o.x, o.y) >= 110);
+      if (clear || attempt === 6) break;
+    }
     nextNavTarget(rng, car);
     state.cars.push(car);
   }
