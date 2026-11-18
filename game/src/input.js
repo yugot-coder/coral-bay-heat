@@ -1,53 +1,68 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
+// Keyboard and mouse input. Keys are tracked as a held set; one-shot actions
+// (shoot, enter car, pause, confirm) are queued so a fixed-step loop can
+// consume them exactly once. Mouse aim is converted to world space by main.
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
+export const ACT_SHOOT = 1;
+export const ACT_ENTER = 2;
+export const ACT_PAUSE = 4;
+export const ACT_CONFIRM = 8;
+export const ACT_HORN = 16;
 
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
+const CODE_ACTIONS = {
+  KeyE: ACT_ENTER,
+  KeyF: ACT_SHOOT,
+  Escape: ACT_PAUSE,
+  KeyP: ACT_PAUSE,
+  Enter: ACT_CONFIRM,
+  KeyH: ACT_HORN,
+};
 
-export function createInput(target) {
-  let left = false;
-  let right = false;
+export function createInput(canvas) {
+  const keys = new Set();
   let actions = 0;
+  let mouseX = 0;
+  let mouseY = 0;
+  let mouseDown = false;
+  let clicked = false;
+  let gesture = false;
 
-  window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
-    event.preventDefault();
+  window.addEventListener('keydown', (e) => {
+    gesture = true;
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+    if (!e.repeat && CODE_ACTIONS[e.code]) actions |= CODE_ACTIONS[e.code];
+    keys.add(e.code);
   });
-  window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
+  window.addEventListener('keyup', (e) => keys.delete(e.code));
+  window.addEventListener('blur', () => { keys.clear(); mouseDown = false; });
+  canvas.addEventListener('mousemove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    mouseX = e.clientX - r.left;
+    mouseY = e.clientY - r.top;
   });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
-  window.addEventListener('blur', () => {
-    left = false;
-    right = false;
+  canvas.addEventListener('mousedown', (e) => {
+    gesture = true;
+    mouseDown = true;
+    clicked = true;
+    if (e.button === 0) actions |= ACT_SHOOT;
   });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
-  });
+  window.addEventListener('mouseup', () => { mouseDown = false; });
+  canvas.addEventListener('touchstart', () => { gesture = true; }, { passive: true });
 
   return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
+    keys,
+    get mouseX() { return mouseX; },
+    get mouseY() { return mouseY; },
+    get mouseDown() { return mouseDown; },
+    get clicked() { const c = clicked; clicked = false; return c; },
+    get gesture() { return gesture; },
+    down(code) { return keys.has(code); },
+    axisX() { return (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0); },
+    axisY() { return (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0); },
+    sprint() { return keys.has('ShiftLeft') || keys.has('ShiftRight'); },
+    handbrake() { return keys.has('Space'); },
+    takeActions() { const a = actions; actions = 0; return a; },
+    setKeys(codes) { keys.clear(); for (const c of codes) keys.add(c); },
+    setAim(x, y) { mouseX = x; mouseY = y; },
+    press(action) { actions |= action; },
   };
 }

@@ -8,6 +8,7 @@
 // your own open-world crime game in its place (three.js or any library you vendor under game/),
 // put your 3 or 4 PNG or JPEG screenshots in screenshots/ (the first by name is the cover) and run it.
 //
+// Coral Bay Heat — an original top-down open-world crime game in game/.
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
@@ -16,6 +17,9 @@ import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
+
+const GAME_TITLE = 'Coral Bay Heat';
+console.log(`Packing ${GAME_TITLE}: game/ and screenshots/ for the gta6-01 judge.`);
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
