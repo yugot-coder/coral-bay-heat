@@ -33,6 +33,20 @@ export function createRenderer(canvas) {
 
   function drawGround(state, l, t, r, b) {
     rect(l, t, r - l, b - t, PALETTE.grass);
+    // Mower stripes: a 300px checker of slightly lighter grass.
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    {
+      const gs = 300;
+      const x0 = Math.floor(l / gs) * gs;
+      const y0 = Math.floor(t / gs) * gs;
+      for (let gx = x0; gx < r; gx += gs) {
+        for (let gy = y0; gy < b; gy += gs) {
+          const cx = Math.floor(gx / gs);
+          const cy = Math.floor(gy / gs);
+          if ((cx + cy) % 2 === 0) ctx.fillRect(gx, gy, gs, gs);
+        }
+      }
+    }
     // Beach sand and the animated sea along the east edge.
     if (r > BEACH_X) {
       rect(Math.max(l, BEACH_X), t, r - Math.max(l, BEACH_X), b - t, PALETTE.sand);
@@ -62,6 +76,28 @@ export function createRenderer(canvas) {
       ctx.moveTo(park.x + 20, park.y + park.h / 2);
       ctx.lineTo(park.x + park.w - 20, park.y + park.h / 2);
       ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(park.x + park.w / 2, park.y + 20);
+      ctx.lineTo(park.x + park.w / 2, park.y + park.h - 20);
+      ctx.stroke();
+      // Two benches at hash-derived spots inside the park.
+      for (let bi = 0; bi < 2; bi += 1) {
+        const bh = winHash(park.x + bi * 137, park.y + bi * 89);
+        const bx = park.x + 28 + (bh % Math.max(1, park.w - 90));
+        const by = park.y + 28 + ((bh >>> 5) % Math.max(1, park.h - 70));
+        rect(bx, by, 28, 10, '#8a6b42');
+        rect(bx, by + 3, 28, 1.6, 'rgba(0,0,0,0.35)');
+        rect(bx, by + 6.5, 28, 1.6, 'rgba(0,0,0,0.35)');
+      }
+      // A pond in one corner of every other park.
+      if (winHash(park.x, park.y) % 2 === 0) {
+        const px2 = park.x + park.w - 64;
+        const py2 = park.y + 54;
+        ctx.fillStyle = '#e8e4da';
+        ctx.beginPath(); ctx.ellipse(px2, py2, 42, 25, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#3f8fae';
+        ctx.beginPath(); ctx.ellipse(px2, py2, 37, 20, 0, 0, Math.PI * 2); ctx.fill();
+      }
     }
     for (const lot of state.city.lots) {
       if (lot.x + lot.w < l || lot.x > r || lot.y + lot.h < t || lot.y > b) continue;
@@ -84,6 +120,18 @@ export function createRenderer(canvas) {
       if (hy + ROAD_W / 2 < t || hy - ROAD_W / 2 > b) continue;
       rect(l, hy - ROAD_W / 2 - 13, r - l, ROAD_W + 26, PALETTE.sidewalk);
       rect(l, hy - ROAD_W / 2, r - l, ROAD_W, PALETTE.asphalt);
+    }
+    // Edge lines along every road.
+    ctx.fillStyle = 'rgba(244,233,200,0.45)';
+    for (const vx of V_ROADS) {
+      if (vx + ROAD_W / 2 < l || vx - ROAD_W / 2 > r) continue;
+      ctx.fillRect(vx - ROAD_W / 2 + 5, t, 3, b - t);
+      ctx.fillRect(vx + ROAD_W / 2 - 8, t, 3, b - t);
+    }
+    for (const hy of H_ROADS) {
+      if (hy + ROAD_W / 2 < t || hy - ROAD_W / 2 > b) continue;
+      ctx.fillRect(l, hy - ROAD_W / 2 + 5, r - l, 3);
+      ctx.fillRect(l, hy + ROAD_W / 2 - 8, r - l, 3);
     }
     // Lane dashes.
     ctx.fillStyle = PALETTE.lane;
@@ -163,6 +211,7 @@ export function createRenderer(canvas) {
       if (bd.x + bd.w < l - 60 || bd.x > r + 60 || bd.y + bd.h < t - 60 || bd.y > b + 60) continue;
       const sh = 6 + bd.height * 0.16;
       rect(bd.x + sh, bd.y + sh, bd.w, bd.h, 'rgba(60,35,20,0.35)');
+      rect(bd.x - 9, bd.y - 9, bd.w + 18, bd.h + 18, PALETTE.plaza);
       rect(bd.x - 5, bd.y - 5, bd.w + 10, bd.h + 10, PALETTE.sidewalk);
       // Two-tone body: deeper base, lighter upper field.
       rect(bd.x, bd.y, bd.w, bd.h, shade(bd.color, -16));
@@ -187,8 +236,10 @@ export function createRenderer(canvas) {
             const ph = Math.min(py - 2.5, fy + fh - gy - 1);
             if (pw < 4 || ph < 4) continue;
             const wh = winHash(gx, gy);
-            const lit = night ? wh % 100 < 34 : wh % 100 < 9;
-            ctx.fillStyle = lit ? (night ? '#ffd873' : '#ffca7a') : (wh % 3 === 0 ? 'rgba(190,228,248,0.75)' : 'rgba(140,195,225,0.55)');
+            const group = Math.floor((gx - fx) / 63);
+            const gh = winHash(fx + group * 63, gy);
+            const lit = night ? (gh % 100 < 30 && wh % 100 < 80) : wh % 100 < 7;
+            ctx.fillStyle = lit ? (night ? '#ffd873' : '#ffca7a') : (night ? (wh % 2 === 0 ? 'rgba(120,170,200,0.28)' : 'rgba(90,140,175,0.22)') : (wh % 2 === 0 ? 'rgba(190,228,248,0.5)' : 'rgba(150,200,230,0.38)'));
             ctx.fillRect(gx + 1.2, gy + 1.2, pw, ph);
           }
         }
@@ -236,7 +287,7 @@ export function createRenderer(canvas) {
             const wx = bd.x + 16 + cx * ((bd.w - 26) / cols);
             const wy = bd.y + 15 + cy * ((bd.h - shopH - 24) / rows);
             const wh = winHash(wx, wy);
-            const lit = night ? wh % 100 < 33 : wh % 100 < 11;
+            const lit = night ? wh % 100 < 33 : wh % 100 < 8;
             if (style === 'stucco' && bd.balcony && cy > 0 && wh % 3 === 0) {
               // Balcony slab with little rails under this window.
               rect(wx - 3.5, wy + 11, 18, 3.4, shade(bd.color, -30));
@@ -250,7 +301,7 @@ export function createRenderer(canvas) {
             }
             if (style === 'brick') rect(wx - 1.6, wy - 3, 14.2, 2.6, 'rgba(255,244,225,0.75)'); // lintel
             rect(wx - 1.4, wy - 1.4, 13.8, 10.8, 'rgba(255,250,238,0.85)'); // frame
-            ctx.fillStyle = lit ? (night ? '#ffd873' : '#ffca7a') : (wh % 4 === 0 ? 'rgba(96,140,168,0.85)' : 'rgba(40,60,80,0.5)');
+            ctx.fillStyle = lit ? (night ? '#ffd873' : '#ffd9a0') : (wh % 4 === 0 ? 'rgba(96,140,168,0.85)' : 'rgba(40,60,80,0.5)');
             ctx.fillRect(wx, wy, 11, 8);
           }
         }
@@ -391,15 +442,18 @@ export function createRenderer(canvas) {
     if (car.role === 'police') {
       ctx.fillStyle = '#1d2733';
       ctx.fillRect(-6, -m.width / 2, 20, m.width);
+      ctx.fillRect(m.length / 2 - 15, -m.width / 2 + 2, 13, m.width - 4);
+      ctx.fillRect(-m.length / 2 + 2, -m.width / 2 + 2, 13, m.width - 4);
       // Light bar: red and blue alternate with world time.
       const phase = Math.floor(state.time * 6) % 2 === 0;
+      circle(2, 0, 17, phase ? 'rgba(255,59,48,0.30)' : 'rgba(58,123,255,0.30)');
       ctx.fillStyle = phase ? '#ff3b30' : '#3a7bff';
       ctx.fillRect(-4, -8, 9, 16);
       ctx.fillStyle = phase ? '#3a7bff' : '#ff3b30';
       ctx.fillRect(6, -8, 9, 16);
       ctx.fillStyle = '#ffffff';
-      ctx.font = `bold 8px ${FONT}`; ctx.textAlign = 'center';
-      ctx.fillText('PD', 2, 3);
+      ctx.font = `bold 10px ${FONT}`; ctx.textAlign = 'center';
+      ctx.fillText('PD', 2, 3.5);
     }
     // Cabin and glass.
     ctx.fillStyle = 'rgba(24,38,54,0.88)';
@@ -408,6 +462,18 @@ export function createRenderer(canvas) {
     ctx.fill();
     ctx.fillStyle = 'rgba(150,210,240,0.5)';
     ctx.fillRect(m.length * 0.13, -m.width * 0.32, 5, m.width * 0.64);
+    if (car.role === 'police') {
+      // Re-draw the light bar on top of the cabin so it stays readable.
+      const phase2 = Math.floor(state.time * 6) % 2 === 0;
+      circle(2, 0, 17, phase2 ? 'rgba(255,59,48,0.30)' : 'rgba(58,123,255,0.30)');
+      ctx.fillStyle = phase2 ? '#ff3b30' : '#3a7bff';
+      ctx.fillRect(-4, -8, 9, 16);
+      ctx.fillStyle = phase2 ? '#3a7bff' : '#ff3b30';
+      ctx.fillRect(6, -8, 9, 16);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold 10px ${FONT}`; ctx.textAlign = 'center';
+      ctx.fillText('PD', 5, 3.5);
+    }
     if (m.kind === 'pickup') { ctx.fillStyle = shade(car.color === '#3a3a3a' ? '#666666' : car.color, -24); ctx.fillRect(-m.length / 2 + 4, -m.width / 2 + 4, m.length * 0.34, m.width - 8); }
     if (m.kind === 'van') { ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(-m.length * 0.05, -m.width / 2 + 4, m.length * 0.4, m.width - 8); }
     if (m.kind === 'sports') { ctx.fillStyle = '#20242a'; ctx.fillRect(-m.length / 2 + 2, -m.width / 2 + 2, 8, m.width - 4); }

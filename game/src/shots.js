@@ -156,11 +156,11 @@ function sceneTitle(seed) {
   state.phase = PHASE_NIGHT;
   const input = scriptInput();
   const p = state.player;
-  p.x = 2150; p.y = 1080;
-  state.camera.x = 2150; state.camera.y = 900;
+  p.x = 4120; p.y = 1240;
+  state.camera.x = 3980; state.camera.y = 1080;
   runSteps(state, input, 360, null);
   state.phase = PHASE_NIGHT;
-  state.camera.x = 2150; state.camera.y = 900;
+  state.camera.x = 3980; state.camera.y = 1080;
   return { state, screen: SCREEN_TITLE };
 }
 

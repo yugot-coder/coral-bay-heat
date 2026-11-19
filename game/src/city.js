@@ -152,6 +152,32 @@ export function generateCity(rng) {
     });
   }
 
+  // Street trees along every road, from position hashes only (no rng draws,
+  // appended last so the existing layout never shifts).
+  for (const vx of V_ROADS) {
+    for (const side of [-1, 1]) {
+      const x = vx + side * (ROAD_W / 2 + 17);
+      for (let y = 140; y <= WORLD.height - 140; y += 235) {
+        if (H_ROADS.some((hy) => Math.abs(y - hy) < 170)) continue;
+        const h = hash2(x, y);
+        if (h % 100 < 30) continue;
+        trees.push({ x, y: y + ((h % 41) - 20), r: 12 + ((h >>> 5) % 6), palm: x > 3350 });
+      }
+    }
+  }
+  for (const hy of H_ROADS) {
+    for (const side of [-1, 1]) {
+      const y = hy + side * (ROAD_W / 2 + 17);
+      for (let x = 140; x <= WORLD.width - 140; x += 235) {
+        if (x > BEACH_X - 40) continue;
+        if (V_ROADS.some((vx) => Math.abs(x - vx) < 170)) continue;
+        const h = hash2(x, y);
+        if (h % 100 < 30) continue;
+        trees.push({ x: x + ((h % 41) - 20), y, r: 12 + ((h >>> 5) % 6), palm: x > 3350 });
+      }
+    }
+  }
+
   return { buildings, parks, lots, trees, lights, landmarks, props };
 }
 
